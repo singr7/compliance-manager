@@ -19,6 +19,10 @@ services:
       MONGO_URI: mongodb://mongo:27017/compliance_manager
       # STORAGE_BACKEND=filesystem (default) or s3 — switching is config-only, no rebuild.
       # S3-compatible (MinIO or cloud) credentials/bucket come from ./api/.env when s3.
+      # SEED_TEMPLATES_ON_BOOTSTRAP=true (default, from ./api/.env) auto-creates the two
+      # reference checklist templates the moment the first auditor bootstraps — idempotent,
+      # never overwrites a template you've since edited. `docker compose exec api npm run
+      # seed:demo` additionally seeds a demo org/customer/assessment on top of that.
     volumes:
       # Only read/written when STORAGE_BACKEND=filesystem; unused (harmless) otherwise.
       - evidence_storage:/app/evidence-storage

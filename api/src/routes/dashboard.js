@@ -95,6 +95,11 @@ async function buildAuditorDashboard() {
       dueDate: a.dueDate,
     }));
 
+  const statusCounts = allActiveResponses.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {});
+
   return {
     role: 'auditor',
     activeAssessmentCount: activeAssessments.length,
@@ -102,6 +107,8 @@ async function buildAuditorDashboard() {
     recentSubmissions,
     controlsNeedingReview,
     behindSchedule,
+    statusCounts,
+    totalControls: allActiveResponses.length,
   };
 }
 
@@ -140,6 +147,14 @@ async function buildCustomerDashboard(organisationId) {
   const needsMyAttention = allResponses.filter((r) => r.status === 'needs_clarification').map(toItem);
   const awaitingAuditor = allResponses.filter((r) => r.status === 'submitted').map(toItem);
 
+  const activeResponses = activeAssessments.flatMap(
+    (a) => responsesByAssessment.get(a._id.toString()) || []
+  );
+  const statusCounts = activeResponses.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {});
+
   const now = new Date();
   const sevenDaysOut = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const dueSoon = assessments
@@ -156,6 +171,8 @@ async function buildCustomerDashboard(organisationId) {
     needsMyAttention,
     awaitingAuditor,
     dueSoon,
+    statusCounts,
+    totalControls: activeResponses.length,
   };
 }
 

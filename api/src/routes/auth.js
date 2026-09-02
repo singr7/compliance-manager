@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { User } from '../models/User.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { signToken } from '../utils/jwt.js';
+import { seedReferenceTemplates } from '../services/referenceTemplates.js';
+import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
 
 export const authRouter = Router();
 
@@ -63,6 +66,19 @@ authRouter.post('/bootstrap-admin', async (req, res) => {
     role: 'auditor',
     organisationId: null,
   });
+
+  // First auditor on a fresh deployment — seed the reference checklist templates so
+  // there's real content to work with immediately, without a separate manual step.
+  // Idempotent and one-time in practice (bootstrap only ever succeeds on an empty DB).
+  if (env.seedTemplatesOnBootstrap) {
+    try {
+      const created = await seedReferenceTemplates(user._id);
+      logger.info('reference_templates_seeded', { count: created.length });
+    } catch (err) {
+      logger.error('reference_templates_seed_failed', { message: err.message });
+    }
+  }
+
   const token = signToken(user);
   res.status(201).json({ token, user: toProfile(user) });
 });

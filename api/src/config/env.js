@@ -17,4 +17,10 @@ export const env = {
   s3Endpoint: process.env.S3_ENDPOINT || '',
   s3AccessKeyId: process.env.S3_ACCESS_KEY_ID || '',
   s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
+
+  // Auto-seed the reference checklist templates the moment the first auditor account is
+  // created (see routes/auth.js bootstrap-admin) — on by default so `docker compose up`
+  // plus one bootstrap call gives a working deployment with real content. Idempotent
+  // either way (never overwrites an existing template), so this is safe to leave on.
+  seedTemplatesOnBootstrap: process.env.SEED_TEMPLATES_ON_BOOTSTRAP !== 'false',
 };

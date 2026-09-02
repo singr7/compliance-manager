@@ -24,6 +24,9 @@
   --active-bg: oklch(93% 0.045 155);
   --active-text: oklch(32% 0.07 155);
 
+  --warn-bg: oklch(94% 0.05 55);
+  --warn-text: oklch(45% 0.1 40);
+
   --serif: 'Newsreader', Georgia, serif;
   --sans: 'Public Sans', system-ui, -apple-system, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -346,8 +349,8 @@ td.actions a:first-child {
 }
 
 .badge-warn {
-  background: oklch(94% 0.05 55);
-  color: oklch(45% 0.1 40);
+  background: var(--warn-bg);
+  color: var(--warn-text);
 }
 
 /* Forms */
