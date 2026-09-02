@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext.jsx';
-import { api } from '../lib/api.js';
+import { api, downloadEvidence } from '../lib/api.js';
+
+function formatBytes(bytes) {
+  if (!bytes && bytes !== 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const STATUS_LABELS = {
   not_started: 'Not started',
@@ -33,22 +40,145 @@ function AnswerField({ responseType, value, onChange }) {
   if (responseType === 'long_text') {
     return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={5} />;
   }
-  if (responseType === 'file_required') {
-    return (
-      <p className="muted" style={{ fontSize: 12.5 }}>
-        Evidence upload is not available yet in this build.
-      </p>
-    );
-  }
   return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
 }
 
-function QuestionDrawer({ response, onClose, onSaved, canEdit }) {
+function EvidenceList({ assessmentId, responseId, canManage, canEditPreSubmit }) {
+  const [evidence, setEvidence] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [description, setDescription] = useState('');
+  const [pendingFile, setPendingFile] = useState(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setEvidence(await api.listEvidence(assessmentId, responseId));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseId]);
+
+  async function handleUpload(e) {
+    e.preventDefault();
+    if (!pendingFile) return;
+    setError('');
+    setUploading(true);
+    try {
+      await api.uploadEvidence(assessmentId, responseId, pendingFile, description);
+      setPendingFile(null);
+      setDescription('');
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDelete(evidenceId) {
+    setError('');
+    try {
+      await api.deleteEvidence(assessmentId, responseId, evidenceId);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div>
+      {loading ? (
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          Loading evidence…
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {evidence.map((ev) => (
+            <div
+              key={ev._id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 4,
+                fontSize: 12.5,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.originalFilename}
+                </div>
+                <div className="muted" style={{ fontSize: 11 }}>
+                  {formatBytes(ev.sizeBytes)} · {new Date(ev.uploadedAt).toLocaleDateString()}
+                  {ev.description ? ` · ${ev.description}` : ''}
+                </div>
+              </div>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  downloadEvidence(ev._id, ev.originalFilename);
+                }}
+              >
+                Download
+              </a>
+              {canEditPreSubmit && (
+                <a
+                  href="#"
+                  style={{ color: 'var(--text-muted)' }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleDelete(ev._id);
+                  }}
+                >
+                  Remove
+                </a>
+              )}
+            </div>
+          ))}
+          {evidence.length === 0 && (
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              No evidence uploaded yet.
+            </p>
+          )}
+        </div>
+      )}
+
+      {canManage && canEditPreSubmit && (
+        <form onSubmit={handleUpload} style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+          <input
+            type="file"
+            onChange={(e) => setPendingFile(e.target.files?.[0] || null)}
+            style={{ fontSize: 12, flex: 1 }}
+          />
+          <button type="submit" className="secondary" disabled={!pendingFile || uploading}>
+            {uploading ? 'Uploading…' : 'Upload'}
+          </button>
+        </form>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+function QuestionDrawer({ assessmentId, response, onClose, onSaved, canEdit }) {
   const question = response.question || {};
   const [value, setValue] = useState(response.answer?.value ?? '');
   const [customerNote, setCustomerNote] = useState(response.customerNote || '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const preSubmit = response.status === 'not_started' || response.status === 'in_progress';
 
   async function handleSave(submit) {
     setError('');
@@ -97,10 +227,22 @@ function QuestionDrawer({ response, onClose, onSaved, canEdit }) {
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
-            Answer{question.required ? ' (required)' : ''}
-            <AnswerField responseType={question.responseType} value={value} onChange={setValue} />
-          </label>
+          {question.responseType === 'file_required' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+              Evidence{question.required ? ' (required)' : ''}
+              <EvidenceList
+                assessmentId={assessmentId}
+                responseId={response._id}
+                canManage={canEdit}
+                canEditPreSubmit={preSubmit}
+              />
+            </div>
+          ) : (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+              Answer{question.required ? ' (required)' : ''}
+              <AnswerField responseType={question.responseType} value={value} onChange={setValue} />
+            </label>
+          )}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
             Note (optional)
             <textarea value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} rows={2} />
@@ -284,6 +426,7 @@ export default function AssessmentDetail() {
 
       {openResponse && (
         <QuestionDrawer
+          assessmentId={id}
           response={openResponse}
           canEdit={isCustomer}
           onClose={() => setOpenResponseId(null)}

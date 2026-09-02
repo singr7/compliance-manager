@@ -82,7 +82,7 @@ independently deployable/demoable:
 | 2 | Template creation | **Done** |
 | 3 | Assessment creation | **Done** |
 | 4 | Customer questionnaire | **Done** |
-| 5 | Evidence upload | Not started |
+| 5 | Evidence upload | **Done** |
 | 6 | Auditor review + clarification | Not started |
 | 7 | Progress + dashboard | Not started |
 | 8 | Deployment hardening | Not started |

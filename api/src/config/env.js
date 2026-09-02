@@ -8,4 +8,13 @@ export const env = {
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
   nodeEnv: process.env.NODE_ENV || 'development',
+
+  storageBackend: process.env.STORAGE_BACKEND || 'filesystem', // 'filesystem' | 's3'
+  evidenceStorageDir: process.env.EVIDENCE_STORAGE_DIR || './evidence-storage',
+  evidenceMaxSizeBytes: Number(process.env.EVIDENCE_MAX_SIZE_BYTES) || 25 * 1024 * 1024,
+  s3Bucket: process.env.S3_BUCKET || 'compliance-manager-evidence',
+  s3Region: process.env.S3_REGION || 'us-east-1',
+  s3Endpoint: process.env.S3_ENDPOINT || '',
+  s3AccessKeyId: process.env.S3_ACCESS_KEY_ID || '',
+  s3SecretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
 };

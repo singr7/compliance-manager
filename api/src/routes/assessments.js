@@ -1,8 +1,26 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { Assessment } from '../models/Assessment.js';
 import { AssessmentResponse } from '../models/AssessmentResponse.js';
 import { ChecklistTemplate } from '../models/ChecklistTemplate.js';
+import { Evidence } from '../models/Evidence.js';
 import { requireAuth, requireRole, resolveOrgScope } from '../middleware/auth.js';
+import { getStorage } from '../storage/index.js';
+import { buildStorageKey } from '../storage/filesystem.js';
+import { ALLOWED_MIME_TYPES } from '../services/evidenceRules.js';
+import { env } from '../config/env.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: env.evidenceMaxSizeBytes } });
+
+function handleUpload(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: `File exceeds the maximum size of ${env.evidenceMaxSizeBytes} bytes` });
+    }
+    if (err) return next(err);
+    next();
+  });
+}
 
 export const assessmentsRouter = Router();
 
@@ -213,8 +231,21 @@ assessmentsRouter.patch(
       const hasValue =
         response.answer && response.answer.value !== null && response.answer.value !== undefined && response.answer.value !== '';
       const templateQuestion = findTemplateQuestion(template, response.sectionId, response.questionId);
-      if (requiresAnswer(templateQuestion) && !hasValue) {
+      if (
+        requiresAnswer(templateQuestion) &&
+        templateQuestion.responseType !== 'file_required' &&
+        !hasValue
+      ) {
         return res.status(400).json({ error: 'This question requires an answer before it can be submitted' });
+      }
+      if (templateQuestion?.responseType === 'file_required') {
+        const activeEvidenceCount = await Evidence.countDocuments({
+          assessmentResponseId: response._id,
+          isActive: true,
+        });
+        if (activeEvidenceCount === 0) {
+          return res.status(400).json({ error: 'This question requires at least one evidence file before it can be submitted' });
+        }
       }
       response.status = 'submitted';
       response.submittedAt = new Date();
@@ -224,5 +255,90 @@ assessmentsRouter.patch(
 
     await response.save();
     res.json(withQuestionView(response, template));
+  }
+);
+
+async function loadScopedResponse(req, res, assessment) {
+  const response = await AssessmentResponse.findOne({
+    _id: req.params.responseId,
+    assessmentId: assessment._id,
+  });
+  if (!response) {
+    res.status(404).json({ error: 'Response not found' });
+    return null;
+  }
+  return response;
+}
+
+assessmentsRouter.post(
+  '/:id/responses/:responseId/evidence',
+  requireRole('customer_user'),
+  handleUpload,
+  async (req, res) => {
+    const assessment = await loadScopedAssessment(req, res);
+    if (!assessment) return;
+    const response = await loadScopedResponse(req, res, assessment);
+    if (!response) return;
+
+    if (!req.file) return res.status(400).json({ error: 'A file is required' });
+    if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: `File type ${req.file.mimetype} is not allowed` });
+    }
+
+    const evidence = new Evidence({
+      assessmentResponseId: response._id,
+      originalFilename: req.file.originalname,
+      storageKey: '',
+      mimeType: req.file.mimetype,
+      sizeBytes: req.file.size,
+      uploadedBy: req.auth.sub,
+      description: req.body?.description || '',
+    });
+    evidence.storageKey = buildStorageKey({
+      organisationId: assessment.organisationId,
+      assessmentId: assessment._id,
+      questionId: response.questionId,
+      evidenceId: evidence._id,
+    });
+
+    await getStorage().put(evidence.storageKey, req.file.buffer);
+    await evidence.save();
+
+    res.status(201).json(evidence);
+  }
+);
+
+assessmentsRouter.get('/:id/responses/:responseId/evidence', async (req, res) => {
+  const assessment = await loadScopedAssessment(req, res);
+  if (!assessment) return;
+  const response = await loadScopedResponse(req, res, assessment);
+  if (!response) return;
+
+  const evidence = await Evidence.find({ assessmentResponseId: response._id }).sort({ uploadedAt: -1 });
+  res.json(evidence);
+});
+
+assessmentsRouter.delete(
+  '/:id/responses/:responseId/evidence/:evidenceId',
+  requireRole('customer_user'),
+  async (req, res) => {
+    const assessment = await loadScopedAssessment(req, res);
+    if (!assessment) return;
+    const response = await loadScopedResponse(req, res, assessment);
+    if (!response) return;
+
+    if (response.status !== 'not_started' && response.status !== 'in_progress') {
+      return res.status(400).json({ error: 'Evidence can only be removed before the response is submitted' });
+    }
+
+    const evidence = await Evidence.findOne({
+      _id: req.params.evidenceId,
+      assessmentResponseId: response._id,
+    });
+    if (!evidence) return res.status(404).json({ error: 'Evidence not found' });
+
+    await getStorage().delete(evidence.storageKey);
+    await evidence.deleteOne();
+    res.status(204).end();
   }
 );

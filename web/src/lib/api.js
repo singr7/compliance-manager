@@ -6,6 +6,14 @@ export function setAuthToken(token) {
   authToken = token;
 }
 
+export function getAuthToken() {
+  return authToken;
+}
+
+export function apiBaseUrl() {
+  return API_BASE_URL;
+}
+
 async function request(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth && authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -23,6 +31,34 @@ async function request(path, { method = 'GET', body, auth = true } = {}) {
     throw new Error(data?.error || `Request failed with status ${res.status}`);
   }
   return data;
+}
+
+async function requestForm(path, formData) {
+  const headers = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const res = await fetch(`${API_BASE_URL}${path}`, { method: 'POST', headers, body: formData });
+  if (res.status === 204) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || `Request failed with status ${res.status}`);
+  }
+  return data;
+}
+
+export async function downloadEvidence(evidenceId, filename) {
+  const headers = {};
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  const res = await fetch(`${API_BASE_URL}/evidence/${evidenceId}/download`, { headers });
+  if (!res.ok) throw new Error(`Download failed with status ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export const api = {
@@ -65,4 +101,17 @@ export const api = {
   listResponses: (assessmentId) => request(`/assessments/${assessmentId}/responses`),
   saveResponse: (assessmentId, responseId, payload) =>
     request(`/assessments/${assessmentId}/responses/${responseId}`, { method: 'PATCH', body: payload }),
+
+  listEvidence: (assessmentId, responseId) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}/evidence`),
+  uploadEvidence: (assessmentId, responseId, file, description) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (description) formData.append('description', description);
+    return requestForm(`/assessments/${assessmentId}/responses/${responseId}/evidence`, formData);
+  },
+  deleteEvidence: (assessmentId, responseId, evidenceId) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}/evidence/${evidenceId}`, {
+      method: 'DELETE',
+    }),
 };
