@@ -114,4 +114,14 @@ export const api = {
     request(`/assessments/${assessmentId}/responses/${responseId}/evidence/${evidenceId}`, {
       method: 'DELETE',
     }),
+
+  reviewResponse: (assessmentId, responseId, payload) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}/review`, { method: 'POST', body: payload }),
+  listComments: (assessmentId, responseId) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}/comments`),
+  addComment: (assessmentId, responseId, text) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}/comments`, {
+      method: 'POST',
+      body: { text },
+    }),
 };

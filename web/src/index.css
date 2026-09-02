@@ -345,6 +345,11 @@ td.actions a:first-child {
   color: var(--text-muted);
 }
 
+.badge-warn {
+  background: oklch(94% 0.05 55);
+  color: oklch(45% 0.1 40);
+}
+
 /* Forms */
 
 .inline-form {

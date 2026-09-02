@@ -83,7 +83,7 @@ independently deployable/demoable:
 | 3 | Assessment creation | **Done** |
 | 4 | Customer questionnaire | **Done** |
 | 5 | Evidence upload | **Done** |
-| 6 | Auditor review + clarification | Not started |
+| 6 | Auditor review + clarification | **Done** |
 | 7 | Progress + dashboard | Not started |
 | 8 | Deployment hardening | Not started |
 

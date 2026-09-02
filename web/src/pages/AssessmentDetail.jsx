@@ -21,13 +21,14 @@ const STATUS_LABELS = {
 
 function statusBadgeClass(status) {
   if (status === 'accepted') return 'badge-active';
+  if (status === 'needs_clarification' || status === 'non_compliant') return 'badge-warn';
   return 'badge-draft';
 }
 
-function AnswerField({ responseType, value, onChange }) {
+function AnswerField({ responseType, value, onChange, disabled }) {
   if (responseType === 'yes_no_na') {
     return (
-      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
         <option value="" disabled>
           Select an answer
         </option>
@@ -38,9 +39,9 @@ function AnswerField({ responseType, value, onChange }) {
     );
   }
   if (responseType === 'long_text') {
-    return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={5} />;
+    return <textarea value={value ?? ''} onChange={(e) => onChange(e.target.value)} rows={5} disabled={disabled} />;
   }
-  return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
+  return <input value={value ?? ''} onChange={(e) => onChange(e.target.value)} disabled={disabled} />;
 }
 
 function EvidenceList({ assessmentId, responseId, canManage, canEditPreSubmit }) {
@@ -172,13 +173,105 @@ function EvidenceList({ assessmentId, responseId, canManage, canEditPreSubmit })
   );
 }
 
-function QuestionDrawer({ assessmentId, response, onClose, onSaved, canEdit }) {
+function CommentThread({ assessmentId, responseId, authorRole, refreshSignal }) {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      setComments(await api.listComments(assessmentId, responseId));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseId, refreshSignal]);
+
+  async function handlePost(e) {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setError('');
+    setPosting(true);
+    try {
+      await api.addComment(assessmentId, responseId, text.trim());
+      setText('');
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  return (
+    <div>
+      {loading ? (
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          Loading comments…
+        </p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+          {comments.map((c) => (
+            <div
+              key={c._id}
+              style={{
+                fontSize: 12.5,
+                padding: '8px 10px',
+                borderRadius: 4,
+                background: c.authorRole === 'auditor' ? 'var(--accent-bg)' : 'var(--surface-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                <span style={{ fontWeight: 600 }}>{c.authorRole === 'auditor' ? 'Auditor' : 'Customer'}</span>
+                <span className="muted" style={{ fontSize: 11 }}>
+                  {new Date(c.createdAt).toLocaleString()}
+                </span>
+              </div>
+              <div>{c.text}</div>
+            </div>
+          ))}
+          {comments.length === 0 && (
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              No comments yet.
+            </p>
+          )}
+        </div>
+      )}
+      <form onSubmit={handlePost} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`Comment as ${authorRole === 'auditor' ? 'auditor' : 'customer'}…`}
+          style={{ flex: 1, fontSize: 12.5 }}
+        />
+        <button type="submit" className="secondary" disabled={!text.trim() || posting}>
+          {posting ? 'Posting…' : 'Post'}
+        </button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+function QuestionDrawer({ assessmentId, response, onClose, onSaved, onReviewed, canEdit, isAuditor }) {
   const question = response.question || {};
   const [value, setValue] = useState(response.answer?.value ?? '');
   const [customerNote, setCustomerNote] = useState(response.customerNote || '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewing, setReviewing] = useState(false);
   const preSubmit = response.status === 'not_started' || response.status === 'in_progress';
+  const canReview = isAuditor && (response.status === 'submitted' || response.status === 'needs_clarification');
 
   async function handleSave(submit) {
     setError('');
@@ -194,6 +287,23 @@ function QuestionDrawer({ assessmentId, response, onClose, onSaved, canEdit }) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleReview(decision) {
+    if (decision === 'needs_clarification' && !reviewComment.trim()) {
+      setError('A comment is required when requesting clarification');
+      return;
+    }
+    setError('');
+    setReviewing(true);
+    try {
+      await onReviewed({ decision, comment: reviewComment.trim() || undefined });
+      setReviewComment('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setReviewing(false);
     }
   }
 
@@ -240,19 +350,72 @@ function QuestionDrawer({ assessmentId, response, onClose, onSaved, canEdit }) {
           ) : (
             <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
               Answer{question.required ? ' (required)' : ''}
-              <AnswerField responseType={question.responseType} value={value} onChange={setValue} />
+              <AnswerField responseType={question.responseType} value={value} onChange={setValue} disabled={!canEdit} />
             </label>
           )}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
             Note (optional)
-            <textarea value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} rows={2} />
+            <textarea
+              value={customerNote}
+              onChange={(e) => setCustomerNote(e.target.value)}
+              rows={2}
+              disabled={!canEdit}
+            />
           </label>
+
+          <div>
+            <div className="field-label" style={{ marginBottom: 6 }}>
+              Comments
+            </div>
+            <CommentThread
+              assessmentId={assessmentId}
+              responseId={response._id}
+              authorRole={isAuditor ? 'auditor' : 'customer_user'}
+              refreshSignal={`${response.status}:${response.reviewedAt}`}
+            />
+          </div>
+
+          {canReview && (
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                Review comment (required for clarification)
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  rows={2}
+                  placeholder="What needs clarification, or notes for the customer…"
+                />
+              </label>
+              <div className="dialog-actions" style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={reviewing}
+                  onClick={() => handleReview('needs_clarification')}
+                >
+                  Request clarification
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={reviewing}
+                  onClick={() => handleReview('non_compliant')}
+                >
+                  Mark non-compliant
+                </button>
+                <button type="button" disabled={reviewing} onClick={() => handleReview('accept')}>
+                  Accept
+                </button>
+              </div>
+            </div>
+          )}
+
           {error && <p className="error">{error}</p>}
           <div className="dialog-actions">
             <button type="button" className="secondary" onClick={onClose}>
               Close
             </button>
-            {canEdit && (
+            {canEdit && (preSubmit || response.status === 'needs_clarification') && (
               <>
                 <button type="button" className="secondary" disabled={saving} onClick={() => handleSave(false)}>
                   {saving ? 'Saving…' : 'Save draft'}
@@ -273,6 +436,7 @@ export default function AssessmentDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const isCustomer = user.role === 'customer_user';
+  const isAuditor = user.role === 'auditor';
 
   const [assessment, setAssessment] = useState(null);
   const [responses, setResponses] = useState([]);
@@ -297,8 +461,28 @@ export default function AssessmentDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Poll so a status change from the other party (auditor review, customer resubmit) shows
+  // up without a manual refresh — no real-time infra needed for V1 per the mvp-backlog.
+  useEffect(() => {
+    const interval = setInterval(refresh, 15000);
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
   async function handleResponseSaved(responseId, payload) {
     const updated = await api.saveResponse(id, responseId, payload);
+    setResponses((prev) => prev.map((r) => (r._id === updated._id ? updated : r)));
+    setAssessment(await api.getAssessment(id));
+    return updated;
+  }
+
+  async function handleResponseReviewed(responseId, payload) {
+    const updated = await api.reviewResponse(id, responseId, payload);
     setResponses((prev) => prev.map((r) => (r._id === updated._id ? updated : r)));
     setAssessment(await api.getAssessment(id));
     return updated;
@@ -328,6 +512,8 @@ export default function AssessmentDetail() {
   sections.sort((a, b) => a.order - b.order);
 
   const openResponse = responses.find((r) => r._id === openResponseId);
+  const needsAttentionCount = responses.filter((r) => r.status === 'needs_clarification').length;
+  const awaitingReviewCount = responses.filter((r) => r.status === 'submitted').length;
 
   return (
     <div className="page">
@@ -371,6 +557,24 @@ export default function AssessmentDetail() {
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      {isCustomer && needsAttentionCount > 0 && (
+        <div
+          className="badge badge-warn"
+          style={{ display: 'block', marginBottom: 20, padding: '10px 14px', fontSize: 13 }}
+        >
+          Needs your attention: {needsAttentionCount} question{needsAttentionCount === 1 ? '' : 's'} the auditor
+          asked for clarification on.
+        </div>
+      )}
+      {isAuditor && awaitingReviewCount > 0 && (
+        <div
+          className="badge badge-active"
+          style={{ display: 'block', marginBottom: 20, padding: '10px 14px', fontSize: 13 }}
+        >
+          {awaitingReviewCount} question{awaitingReviewCount === 1 ? '' : 's'} awaiting your review.
+        </div>
+      )}
 
       {sections.map((section, sIdx) => (
         <div key={section.sectionId} style={{ marginBottom: 20 }}>
@@ -429,8 +633,10 @@ export default function AssessmentDetail() {
           assessmentId={id}
           response={openResponse}
           canEdit={isCustomer}
+          isAuditor={isAuditor}
           onClose={() => setOpenResponseId(null)}
           onSaved={(payload) => handleResponseSaved(openResponse._id, payload)}
+          onReviewed={(payload) => handleResponseReviewed(openResponse._id, payload)}
         />
       )}
     </div>

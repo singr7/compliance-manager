@@ -4,6 +4,7 @@ import { Assessment } from '../models/Assessment.js';
 import { AssessmentResponse } from '../models/AssessmentResponse.js';
 import { ChecklistTemplate } from '../models/ChecklistTemplate.js';
 import { Evidence } from '../models/Evidence.js';
+import { Comment } from '../models/Comment.js';
 import { requireAuth, requireRole, resolveOrgScope } from '../middleware/auth.js';
 import { getStorage } from '../storage/index.js';
 import { buildStorageKey } from '../storage/filesystem.js';
@@ -342,3 +343,80 @@ assessmentsRouter.delete(
     res.status(204).end();
   }
 );
+
+const REVIEW_DECISIONS = ['accept', 'needs_clarification', 'non_compliant'];
+const REVIEW_DECISION_TO_STATUS = {
+  accept: 'accepted',
+  needs_clarification: 'needs_clarification',
+  non_compliant: 'non_compliant',
+};
+
+assessmentsRouter.post(
+  '/:id/responses/:responseId/review',
+  requireRole('auditor'),
+  async (req, res) => {
+    const assessment = await loadScopedAssessment(req, res);
+    if (!assessment) return;
+    const response = await loadScopedResponse(req, res, assessment);
+    if (!response) return;
+
+    const { decision, comment } = req.body || {};
+    if (!REVIEW_DECISIONS.includes(decision)) {
+      return res.status(400).json({ error: `decision must be one of ${REVIEW_DECISIONS.join(', ')}` });
+    }
+    if (response.status !== 'submitted' && response.status !== 'needs_clarification') {
+      return res.status(400).json({ error: 'Only a submitted response can be reviewed' });
+    }
+    if (decision === 'needs_clarification' && !comment?.trim()) {
+      return res.status(400).json({ error: 'A comment is required when requesting clarification' });
+    }
+
+    response.status = REVIEW_DECISION_TO_STATUS[decision];
+    response.reviewedAt = new Date();
+    response.reviewedBy = req.auth.sub;
+    await response.save();
+
+    if (comment?.trim()) {
+      await Comment.create({
+        assessmentResponseId: response._id,
+        authorId: req.auth.sub,
+        authorRole: 'auditor',
+        text: comment.trim(),
+      });
+    }
+
+    const template = await ChecklistTemplate.findById(assessment.templateId);
+    res.json(withQuestionView(response, template));
+  }
+);
+
+assessmentsRouter.post('/:id/responses/:responseId/comments', async (req, res) => {
+  const assessment = await loadScopedAssessment(req, res);
+  if (!assessment) return;
+  const response = await loadScopedResponse(req, res, assessment);
+  if (!response) return;
+
+  const { text } = req.body || {};
+  if (!text?.trim()) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+
+  const comment = await Comment.create({
+    assessmentResponseId: response._id,
+    authorId: req.auth.sub,
+    authorRole: req.auth.role,
+    text: text.trim(),
+  });
+
+  res.status(201).json(comment);
+});
+
+assessmentsRouter.get('/:id/responses/:responseId/comments', async (req, res) => {
+  const assessment = await loadScopedAssessment(req, res);
+  if (!assessment) return;
+  const response = await loadScopedResponse(req, res, assessment);
+  if (!response) return;
+
+  const comments = await Comment.find({ assessmentResponseId: response._id }).sort({ createdAt: 1 });
+  res.json(comments);
+});
