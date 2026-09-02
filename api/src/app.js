@@ -4,6 +4,7 @@ import { authRouter } from './routes/auth.js';
 import { organisationsRouter } from './routes/organisations.js';
 import { usersRouter } from './routes/users.js';
 import { templatesRouter } from './routes/templates.js';
+import { assessmentsRouter } from './routes/assessments.js';
 
 export function createApp() {
   const app = express();
@@ -17,6 +18,7 @@ export function createApp() {
   app.use('/organisations', organisationsRouter);
   app.use('/users', usersRouter);
   app.use('/templates', templatesRouter);
+  app.use('/assessments', assessmentsRouter);
 
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

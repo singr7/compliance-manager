@@ -54,4 +54,11 @@ export const api = {
       method: 'PATCH',
       body: payload,
     }),
+
+  listAssessments: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request(`/assessments${qs ? `?${qs}` : ''}`);
+  },
+  createAssessment: (payload) => request('/assessments', { method: 'POST', body: payload }),
+  getAssessment: (id) => request(`/assessments/${id}`),
 };

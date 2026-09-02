@@ -80,7 +80,7 @@ independently deployable/demoable:
 |---|-------|--------|
 | 1 | Auth + Organisations | **Done** |
 | 2 | Template creation | **Done** |
-| 3 | Assessment creation | Not started |
+| 3 | Assessment creation | **Done** |
 | 4 | Customer questionnaire | Not started |
 | 5 | Evidence upload | Not started |
 | 6 | Auditor review + clarification | Not started |
