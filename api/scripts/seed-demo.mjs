@@ -8,6 +8,9 @@
 // Usage: node scripts/seed-demo.mjs
 // Reads MONGO_URI the same way the server does (env var, falling back to the local default).
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import { connectDb, disconnectDb } from '../src/db.js';
 import { ChecklistTemplate } from '../src/models/ChecklistTemplate.js';
 import { Organisation } from '../src/models/Organisation.js';
@@ -17,31 +20,31 @@ import { AssessmentResponse } from '../src/models/AssessmentResponse.js';
 import { hashPassword } from '../src/utils/password.js';
 import { env } from '../src/config/env.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const DEMO_ORG_NAME = 'ABC Manufacturing (PCI DSS Demo)';
 const DEMO_CUSTOMER_EMAIL = 'demo.customer@pcidss-demo.test';
 const DEMO_CUSTOMER_PASSWORD = 'DemoCustomer123!';
 
 // ---------------------------------------------------------------------------
-// Template A — "straight lift" from database/panacea.sql's `questionnaire` table
-// (service_id=1, PCI DSS). The legacy dump's 10 PCI DSS rows are, verbatim, all the
-// same Lorem Ipsum placeholder string — the legacy system was seeded with placeholder
-// copy, not real audit content. This template preserves that honestly rather than
-// inventing content that was never actually in the source.
+// Template A — a straight lift from database/panaceainfosec_full.sql's `questionnaire`
+// table (service_id=1, PCI DSS, status=active): 139 real audit questions (one obviously
+// erroneous row — id 100, text literally "ISO" — was dropped as a data-entry error, not
+// a question). Extracted once via a one-off parsing script into data/panacea-pci-
+// questions.json (controlRef = `PANACEA-{legacy id}` for traceability back to the dump);
+// responseType was inferred per-row (short "...?" -> yes_no_na, "Provide..." ->
+// file_required, else long_text) since the legacy schema had no response-type concept.
 // ---------------------------------------------------------------------------
-const LEGACY_PLACEHOLDER_TEXT =
-  'PCI DSS Lorem Ipsum is simply dummy text of the printing and type setting industry.';
-
 function legacyLiftSections() {
-  const questions = Array.from({ length: 10 }, (_, i) => ({
-    text: LEGACY_PLACEHOLDER_TEXT,
-    controlRef: `LEGACY-${i + 1}`,
-    guidance:
-      'Verbatim from database/panacea.sql `questionnaire` (service_id=1, PCI DSS). The legacy dump has no real question text for any of its 10 PCI DSS rows — see README_Migration_Context.md.',
+  const raw = readFileSync(path.join(__dirname, 'data/panacea-pci-questions.json'), 'utf8');
+  const questions = JSON.parse(raw).map((q, i) => ({
+    text: q.text,
+    controlRef: q.controlRef,
+    responseType: q.responseType,
     required: true,
-    responseType: 'yes_no_na',
     order: i,
   }));
-  return [{ title: 'Migrated from Panacea (legacy placeholder content)', order: 0, questions }];
+  return [{ title: 'PCI DSS Assessment Questionnaire (migrated from Panacea)', order: 0, questions }];
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +310,34 @@ async function findOrCreateTemplate(name, category, sections, auditorId) {
   return template;
 }
 
+// Unlike findOrCreateTemplate, this always replaces a same-named template with fresh
+// content — used for the legacy-lift template, whose source data can change (as it just
+// did: panacea.sql -> panaceainfosec_full.sql). Deletes any assessments/responses built
+// off the old version too, since they'd otherwise be orphaned from a template whose
+// section/question ids no longer exist.
+async function replaceTemplate(name, category, sections, auditorId) {
+  const existing = await ChecklistTemplate.findOne({ name });
+  if (existing) {
+    const staleAssessments = await Assessment.find({ templateId: existing._id });
+    for (const a of staleAssessments) {
+      await AssessmentResponse.deleteMany({ assessmentId: a._id });
+    }
+    await Assessment.deleteMany({ templateId: existing._id });
+    await existing.deleteOne();
+    console.log(`Replaced stale template "${name}" (${staleAssessments.length} assessment(s) removed with it)`);
+  }
+  const template = await ChecklistTemplate.create({
+    name,
+    category,
+    status: 'active',
+    sections,
+    createdBy: auditorId,
+  });
+  const total = template.sections.reduce((s, sec) => s + sec.questions.length, 0);
+  console.log(`Created template "${name}" — ${sections.length} sections, ${total} questions`);
+  return template;
+}
+
 async function findOrCreateOrg(name, auditorId) {
   let org = await Organisation.findOne({ name });
   if (!org) {
@@ -389,7 +420,7 @@ async function main() {
   }
   console.log(`Attributing new records to auditor ${auditor.email}`);
 
-  const legacyTemplate = await findOrCreateTemplate(
+  const legacyTemplate = await replaceTemplate(
     'Legacy PCI DSS Migration (Panacea)',
     'Payment Security — Legacy',
     legacyLiftSections(),
