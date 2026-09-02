@@ -10,6 +10,7 @@ import Placeholder from './pages/Placeholder.jsx';
 import Templates from './pages/Templates.jsx';
 import TemplateEditor from './pages/TemplateEditor.jsx';
 import Assessments from './pages/Assessments.jsx';
+import AssessmentDetail from './pages/AssessmentDetail.jsx';
 
 function RequireAuth({ children }) {
   const { user, ready } = useAuth();
@@ -38,7 +39,7 @@ function AppRoutes() {
       >
         <Route index element={<Dashboard />} />
         <Route path="assessments" element={<Assessments />} />
-        <Route path="assessments/:id" element={<Placeholder title="Assessment Overview" />} />
+        <Route path="assessments/:id" element={<AssessmentDetail />} />
         <Route
           path="templates"
           element={

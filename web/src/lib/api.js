@@ -61,4 +61,8 @@ export const api = {
   },
   createAssessment: (payload) => request('/assessments', { method: 'POST', body: payload }),
   getAssessment: (id) => request(`/assessments/${id}`),
+
+  listResponses: (assessmentId) => request(`/assessments/${assessmentId}/responses`),
+  saveResponse: (assessmentId, responseId, payload) =>
+    request(`/assessments/${assessmentId}/responses/${responseId}`, { method: 'PATCH', body: payload }),
 };

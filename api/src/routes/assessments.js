@@ -116,3 +116,113 @@ assessmentsRouter.patch('/:id', requireRole('auditor'), async (req, res) => {
   await assessment.save();
   res.json(await withProgress(assessment));
 });
+
+async function loadScopedAssessment(req, res) {
+  const assessment = await Assessment.findById(req.params.id);
+  if (!assessment) {
+    res.status(404).json({ error: 'Assessment not found' });
+    return null;
+  }
+  if (
+    req.scopedOrganisationId &&
+    assessment.organisationId.toString() !== req.scopedOrganisationId.toString()
+  ) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return assessment;
+}
+
+function requiresAnswer(question) {
+  if (!question) return false;
+  return question.required;
+}
+
+function findTemplateQuestion(template, sectionId, questionId) {
+  const section = template.sections.id(sectionId);
+  if (!section) return null;
+  return section.questions.id(questionId);
+}
+
+// The response endpoints join in a read-only `question` view (responseType, required,
+// guidance) from the live template so the customer questionnaire UI can render the right
+// input control without needing access to the auditor-only /templates/:id endpoint.
+function withQuestionView(response, template) {
+  const section = template ? template.sections.id(response.sectionId) : null;
+  const templateQuestion = section ? section.questions.id(response.questionId) : null;
+  return {
+    ...response.toObject(),
+    sectionTitle: section ? section.title : null,
+    sectionOrder: section ? section.order : null,
+    question: templateQuestion
+      ? {
+          responseType: templateQuestion.responseType,
+          required: templateQuestion.required,
+          guidance: templateQuestion.guidance,
+          expectedEvidence: templateQuestion.expectedEvidence,
+        }
+      : null,
+  };
+}
+
+assessmentsRouter.get('/:id/responses', async (req, res) => {
+  const assessment = await loadScopedAssessment(req, res);
+  if (!assessment) return;
+
+  const [template, responses] = await Promise.all([
+    ChecklistTemplate.findById(assessment.templateId),
+    AssessmentResponse.find({ assessmentId: assessment._id }).sort({ sectionId: 1, createdAt: 1 }),
+  ]);
+  res.json(responses.map((r) => withQuestionView(r, template)));
+});
+
+assessmentsRouter.get('/:id/responses/:responseId', async (req, res) => {
+  const assessment = await loadScopedAssessment(req, res);
+  if (!assessment) return;
+
+  const response = await AssessmentResponse.findOne({
+    _id: req.params.responseId,
+    assessmentId: assessment._id,
+  });
+  if (!response) return res.status(404).json({ error: 'Response not found' });
+
+  const template = await ChecklistTemplate.findById(assessment.templateId);
+  res.json(withQuestionView(response, template));
+});
+
+assessmentsRouter.patch(
+  '/:id/responses/:responseId',
+  requireRole('customer_user'),
+  async (req, res) => {
+    const assessment = await loadScopedAssessment(req, res);
+    if (!assessment) return;
+
+    const response = await AssessmentResponse.findOne({
+      _id: req.params.responseId,
+      assessmentId: assessment._id,
+    });
+    if (!response) return res.status(404).json({ error: 'Response not found' });
+
+    const { answer, customerNote, submit } = req.body || {};
+    if (answer !== undefined) response.answer = answer;
+    if (customerNote !== undefined) response.customerNote = customerNote;
+
+    const template = await ChecklistTemplate.findById(assessment.templateId);
+
+    if (submit) {
+      const hasValue =
+        response.answer && response.answer.value !== null && response.answer.value !== undefined && response.answer.value !== '';
+      const templateQuestion = findTemplateQuestion(template, response.sectionId, response.questionId);
+      if (requiresAnswer(templateQuestion) && !hasValue) {
+        return res.status(400).json({ error: 'This question requires an answer before it can be submitted' });
+      }
+      response.status = 'submitted';
+      response.submittedAt = new Date();
+    } else {
+      response.status = 'in_progress';
+    }
+
+    await response.save();
+    res.json(withQuestionView(response, template));
+  }
+);
