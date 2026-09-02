@@ -5,6 +5,11 @@ services:
       - mongo_data:/data/db
     ports:
       - "27017:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build: ./api
@@ -12,10 +17,21 @@ services:
       - ./api/.env
     environment:
       MONGO_URI: mongodb://mongo:27017/compliance_manager
+      # STORAGE_BACKEND=filesystem (default) or s3 — switching is config-only, no rebuild.
+      # S3-compatible (MinIO or cloud) credentials/bucket come from ./api/.env when s3.
+    volumes:
+      # Only read/written when STORAGE_BACKEND=filesystem; unused (harmless) otherwise.
+      - evidence_storage:/app/evidence-storage
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     ports:
       - "4000:4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   web:
     build:
@@ -23,9 +39,41 @@ services:
       args:
         VITE_API_BASE_URL: http://localhost:4000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "5173:80"
+    # HTTPS is supported by the image (web/docker/40-enable-https.sh) but off by default —
+    # no cert is baked in or assumed. To enable it, uncomment and point at real files:
+    #
+    # environment:
+    #   NGINX_SSL_CERT_PATH: /etc/nginx/certs/fullchain.pem
+    #   NGINX_SSL_KEY_PATH: /etc/nginx/certs/privkey.pem
+    # volumes:
+    #   - /path/on/host/to/certs:/etc/nginx/certs:ro
+    # ports:
+    #   - "5174:443"
+
+  # Local S3-compatible storage for testing STORAGE_BACKEND=s3 without a real cloud
+  # account. Not started by default — `docker compose --profile s3 up` brings it up
+  # alongside api/web/mongo. Point ./api/.env at it: S3_ENDPOINT=http://minio:9000,
+  # S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY matching the values below, S3_BUCKET created
+  # once via the MinIO console at http://localhost:9001.
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    profiles:
+      - s3
 
 volumes:
   mongo_data:
+  evidence_storage:
+  minio_data:

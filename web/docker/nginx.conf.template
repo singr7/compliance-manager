@@ -1,0 +1,17 @@
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # React Router (BrowserRouter) client-side routes — without this, refreshing on
+  # e.g. /assessments/:id 404s instead of serving the SPA shell.
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location /health {
+    add_header Content-Type text/plain;
+    return 200 'ok';
+  }
+}

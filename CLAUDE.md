@@ -84,8 +84,8 @@ independently deployable/demoable:
 | 4 | Customer questionnaire | **Done** |
 | 5 | Evidence upload | **Done** |
 | 6 | Auditor review + clarification | **Done** |
-| 7 | Progress + dashboard | Not started |
-| 8 | Deployment hardening | Not started |
+| 7 | Progress + dashboard | **Done** |
+| 8 | Deployment hardening | **Done** |
 
 Do not pull work forward from a later slice even if it looks easy — later
 slices assume earlier ones are solid (e.g. slice 4's response snapshot logic

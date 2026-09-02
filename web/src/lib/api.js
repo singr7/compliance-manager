@@ -124,4 +124,6 @@ export const api = {
       method: 'POST',
       body: { text },
     }),
+
+  getDashboard: () => request('/dashboard'),
 };
