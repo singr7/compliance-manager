@@ -7,6 +7,8 @@ import Organisations from './pages/Organisations.jsx';
 import Users from './pages/Users.jsx';
 import Profile from './pages/Profile.jsx';
 import Placeholder from './pages/Placeholder.jsx';
+import Templates from './pages/Templates.jsx';
+import TemplateEditor from './pages/TemplateEditor.jsx';
 
 function RequireAuth({ children }) {
   const { user, ready } = useAuth();
@@ -39,7 +41,15 @@ function AppRoutes() {
           path="templates"
           element={
             <RequireAuditor>
-              <Placeholder title="Templates" />
+              <Templates />
+            </RequireAuditor>
+          }
+        />
+        <Route
+          path="templates/:id"
+          element={
+            <RequireAuditor>
+              <TemplateEditor />
             </RequireAuditor>
           }
         />

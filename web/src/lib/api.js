@@ -33,4 +33,25 @@ export const api = {
   listUsers: (organisationId) =>
     request(`/users${organisationId ? `?organisationId=${organisationId}` : ''}`),
   inviteUser: (payload) => request('/users', { method: 'POST', body: payload }),
+
+  listTemplates: () => request('/templates'),
+  getTemplate: (id) => request(`/templates/${id}`),
+  createTemplate: (payload) => request('/templates', { method: 'POST', body: payload }),
+  duplicateTemplate: (id, newName) =>
+    request(`/templates/${id}/duplicate`, { method: 'POST', body: { newName } }),
+  updateTemplate: (id, payload) => request(`/templates/${id}`, { method: 'PATCH', body: payload }),
+  addSection: (templateId, title) =>
+    request(`/templates/${templateId}/sections`, { method: 'POST', body: { title } }),
+  updateSection: (templateId, sectionId, payload) =>
+    request(`/templates/${templateId}/sections/${sectionId}`, { method: 'PATCH', body: payload }),
+  addQuestion: (templateId, sectionId, payload) =>
+    request(`/templates/${templateId}/sections/${sectionId}/questions`, {
+      method: 'POST',
+      body: payload,
+    }),
+  updateQuestion: (templateId, sectionId, questionId, payload) =>
+    request(`/templates/${templateId}/sections/${sectionId}/questions/${questionId}`, {
+      method: 'PATCH',
+      body: payload,
+    }),
 };

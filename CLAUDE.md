@@ -62,6 +62,12 @@ same session — never silently diverge code from docs.
    pattern in `api/src/middleware/auth.js`.
 7. Stateless JWT auth in V1. No session store, no refresh-token rotation
    unless a real need is confirmed.
+8. Visual design is locked to the tokens in `web/src/index.css` (`:root`
+   custom properties) — ink sidebar, warm off-white canvas, single muted
+   slate accent, Newsreader (headings) + Public Sans (UI) + IBM Plex Mono
+   (control refs/counts). Approved by the user via a design-review canvas
+   before Session 2 was built. Reuse these tokens for every new screen;
+   don't introduce new colors/fonts without checking with the user first.
 
 ---
 
@@ -73,7 +79,7 @@ independently deployable/demoable:
 | # | Slice | Status |
 |---|-------|--------|
 | 1 | Auth + Organisations | **Done** |
-| 2 | Template creation | Not started |
+| 2 | Template creation | **Done** |
 | 3 | Assessment creation | Not started |
 | 4 | Customer questionnaire | Not started |
 | 5 | Evidence upload | Not started |
